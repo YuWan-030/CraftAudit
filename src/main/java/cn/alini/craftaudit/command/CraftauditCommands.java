@@ -19,6 +19,7 @@ import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -81,22 +82,65 @@ public final class CraftauditCommands {
                                 )
                         )
                 )
+                // 新：restore <time> [radius] [type]
                 .then(Commands.literal("restore")
                         .then(Commands.argument("time", StringArgumentType.word())
+                                // time
                                 .executes(ctx -> restore(ctx.getSource(),
                                         StringArgumentType.getString(ctx, "time"),
-                                        10))
+                                        10, null))
+                                // time + radius
                                 .then(Commands.argument("radius", IntegerArgumentType.integer(1, 256))
                                         .executes(ctx -> restore(ctx.getSource(),
                                                 StringArgumentType.getString(ctx, "time"),
-                                                IntegerArgumentType.getInteger(ctx, "radius")))
+                                                IntegerArgumentType.getInteger(ctx, "radius"),
+                                                null))
+                                        // time + radius + type
+                                        .then(Commands.argument("type", StringArgumentType.word())
+                                                .executes(ctx -> restore(ctx.getSource(),
+                                                        StringArgumentType.getString(ctx, "time"),
+                                                        IntegerArgumentType.getInteger(ctx, "radius"),
+                                                        StringArgumentType.getString(ctx, "type")))
+                                        )
+                                )
+                                // time + type（无 radius）
+                                .then(Commands.argument("type", StringArgumentType.word())
+                                        .executes(ctx -> restore(ctx.getSource(),
+                                                StringArgumentType.getString(ctx, "time"),
+                                                10,
+                                                StringArgumentType.getString(ctx, "type")))
                                 )
                         )
                 )
-                // 新增：/craftaudit undo 撤销最近一次回滚/恢复
+                // 新：purge <time> 清理早于指定时间的日志
+                .then(Commands.literal("purge")
+                        .then(Commands.argument("time", StringArgumentType.word())
+                                .executes(ctx -> purge(ctx.getSource(),
+                                        StringArgumentType.getString(ctx, "time")))
+                        )
+                )
                 .then(Commands.literal("undo")
                         .executes(ctx -> undo(ctx.getSource()))
                 )
+                // /craftaudit help
+                .then(Commands.literal("help").executes(ctx -> {
+                    CommandSourceStack src = ctx.getSource();
+                    src.sendSuccess(() -> Component.literal(
+                            "§3[CraftAudit] 指令列表：\n" +
+                                    "§b/craftaudit status §7- 显示插件状态\n" +
+                                    "§b/craftaudit inspect §7- 切换审计模式\n" +
+                                    "§b/craftaudit log [page] §7- 查看交互日志\n" +
+                                    "§b/craftaudit blocklog [page] §7- 查看方块日志\n" +
+                                    "§b/craftaudit near <radius> <time> [page] §7- 查看附近方块日志\n" +
+                                    "§b/craftaudit rollback <player> <time> [radius] §7- 回滚玩家破坏的方块\n" +
+                                    "§b/craftaudit restore <time> [radius] [type] §7- 恢复破坏/击杀记录（支持 type 过滤）\n" +
+                                    "§b/craftaudit purge <time> §7- 清理早于指定时间的日志（不可撤销）\n" +
+                                    "§b/craftaudit undo §7- 撤销上次回滚/恢复\n" +
+                                    "\n" +
+                                    "§b/ca ... §7- /craftaudit 的简写"
+                    ), false);
+                    return 1;
+                }))
         );
 
         // /ca ...
@@ -153,18 +197,56 @@ public final class CraftauditCommands {
                         .then(Commands.argument("time", StringArgumentType.word())
                                 .executes(ctx -> restore(ctx.getSource(),
                                         StringArgumentType.getString(ctx, "time"),
-                                        10))
+                                        10, null))
                                 .then(Commands.argument("radius", IntegerArgumentType.integer(1, 256))
                                         .executes(ctx -> restore(ctx.getSource(),
                                                 StringArgumentType.getString(ctx, "time"),
-                                                IntegerArgumentType.getInteger(ctx, "radius")))
+                                                IntegerArgumentType.getInteger(ctx, "radius"),
+                                                null))
+                                        .then(Commands.argument("type", StringArgumentType.word())
+                                                .executes(ctx -> restore(ctx.getSource(),
+                                                        StringArgumentType.getString(ctx, "time"),
+                                                        IntegerArgumentType.getInteger(ctx, "radius"),
+                                                        StringArgumentType.getString(ctx, "type")))
+                                        )
+                                )
+                                .then(Commands.argument("type", StringArgumentType.word())
+                                        .executes(ctx -> restore(ctx.getSource(),
+                                                StringArgumentType.getString(ctx, "time"),
+                                                10,
+                                                StringArgumentType.getString(ctx, "type")))
                                 )
                         )
                 )
-                // 新增：/ca undo
+                // 新：/ca purge <time>
+                .then(Commands.literal("purge")
+                        .then(Commands.argument("time", StringArgumentType.word())
+                                .executes(ctx -> purge(ctx.getSource(),
+                                        StringArgumentType.getString(ctx, "time")))
+                        )
+                )
                 .then(Commands.literal("undo")
                         .executes(ctx -> undo(ctx.getSource()))
                 )
+                // /ca help
+                .then(Commands.literal("help").executes(ctx -> {
+                    CommandSourceStack src = ctx.getSource();
+                    src.sendSuccess(() -> Component.literal(
+                            "§3[CraftAudit] 指令列表：\n" +
+                                    "§b/ca status §7- 显示插件状态\n" +
+                                    "§b/ca i §7- 切换审计模式\n" +
+                                    "§b/ca log [page] §7- 查看交互日志\n" +
+                                    "§b/ca blocklog [page] §7- 查看方块日志\n" +
+                                    "§b/ca near <radius> <time> [page] §7- 查看附近方块日志\n" +
+                                    "§b/ca rollback <player> <time> [radius] §7- 回滚玩家破坏的方块\n" +
+                                    "§b/ca restore <time> [radius] [type] §7- 恢复破坏/击杀记录（支持 type 过滤）\n" +
+                                    "§b/ca purge <time> §7- 清理早于指定时间的日志（不可撤销）\n" +
+                                    "§b/ca undo §7- 撤销上次回滚/恢复\n" +
+                                    "\n" +
+                                    "§b/craftaudit ... §7- /ca 的全称"
+                    ), false);
+                    return 1;
+                }))
         );
     }
 
@@ -264,7 +346,8 @@ public final class CraftauditCommands {
     }
 
     // restore（带撤销快照）
-    private static int restore(CommandSourceStack src, String timeStr, int radius) {
+    // 支持 type：break | natural | explosion | fluid | gravity | kill | kill:<entity_id>
+    private static int restore(CommandSourceStack src, String timeStr, int radius, String typeOpt) {
         var executor = src.getPlayer();
         if (executor == null) {
             src.sendFailure(Component.literal("§c[CraftAudit] 只能由玩家使用该命令！"));
@@ -281,9 +364,70 @@ public final class CraftauditCommands {
         String dim = level.dimension().location().toString();
         BlockPos center = executor.blockPosition();
 
-        int changed = RollbackService.restore(level, dim, center, radius, sinceMs, executor.getUUID());
-        src.sendSuccess(() -> Component.literal(String.format("§3[CraftAudit] 恢复完成：%d 个方块。输入 /ca undo 撤销本次恢复。", changed)), true);
-        return changed > 0 ? 1 : 0;
+        if (typeOpt == null) {
+            int changed = RollbackService.restoreBreaks(level, dim, center, radius, sinceMs, List.of("break","natural_break"), null, executor.getUUID());
+            src.sendSuccess(() -> Component.literal(String.format("§3[CraftAudit] 恢复完成（所有破坏）：%d 个方块。/ca undo 可撤销。", changed)), true);
+            return changed > 0 ? 1 : 0;
+        }
+
+        String t = typeOpt.toLowerCase();
+        switch (t) {
+            case "break": {
+                int changed = RollbackService.restoreBreaks(level, dim, center, radius, sinceMs, List.of("break"), null, executor.getUUID());
+                src.sendSuccess(() -> Component.literal(String.format("§3[CraftAudit] 恢复完成（玩家破坏）：%d 个方块。/ca undo 可撤销。", changed)), true);
+                return changed > 0 ? 1 : 0;
+            }
+            case "natural":
+            case "natural_break": {
+                int changed = RollbackService.restoreBreaks(level, dim, center, radius, sinceMs, List.of("natural_break"), null, executor.getUUID());
+                src.sendSuccess(() -> Component.literal(String.format("§3[CraftAudit] 恢复完成（环境破坏）：%d 个方块。/ca undo 可撤销。", changed)), true);
+                return changed > 0 ? 1 : 0;
+            }
+            case "explosion":
+            case "fluid":
+            case "gravity": {
+                int changed = RollbackService.restoreBreaks(level, dim, center, radius, sinceMs, List.of("natural_break"), t, executor.getUUID());
+                src.sendSuccess(() -> Component.literal(String.format("§3[CraftAudit] 恢复完成（环境破坏: %s）：%d 个方块。/ca undo 可撤销。", t, changed)), true);
+                return changed > 0 ? 1 : 0;
+            }
+            default:
+                if (t.equals("kill") || t.startsWith("kill:")) {
+                    String entityFilter = null;
+                    if (t.startsWith("kill:")) {
+                        entityFilter = t.substring("kill:".length());
+                        if (entityFilter.isBlank()) entityFilter = null;
+                    }
+                    int spawned = RollbackService.restoreKills(level, dim, center, radius, sinceMs, entityFilter, executor.getUUID());
+                    String scope = (entityFilter == null) ? "所有击杀" : ("击杀: " + entityFilter);
+                    src.sendSuccess(() -> Component.literal(String.format("§3[CraftAudit] 恢复完成（%s）：生成 %d 个实体。/ca undo 可撤销。", scope, spawned)), true);
+                    return spawned > 0 ? 1 : 0;
+                } else {
+                    src.sendFailure(Component.literal("§c未知的 type！可选：break | natural | explosion | fluid | gravity | kill | kill:<entity_id>"));
+                    return 0;
+                }
+        }
+    }
+
+    // purge：清理早于指定时间的日志（不可撤销）
+    private static int purge(CommandSourceStack src, String timeStr) {
+        long durMs = parseDurationMillis(timeStr);
+        if (durMs <= 0L) {
+            src.sendFailure(Component.literal("§c时间格式无效！示例：30d、12h、90m、300s"));
+            return 0;
+        }
+        long beforeMs = System.currentTimeMillis() - durMs;
+
+        if (!Database.isConnected()) {
+            src.sendFailure(Component.literal("§c数据库未连接，无法清理。"));
+            return 0;
+        }
+        int deleted = Database.get().deleteLogsBefore(beforeMs);
+        if (deleted < 0) {
+            src.sendFailure(Component.literal("§c清理日志失败，请查看控制台。"));
+            return 0;
+        }
+        src.sendSuccess(() -> Component.literal("§3[CraftAudit] 已清理 " + deleted + " 条早于 " + timeStr + " 的日志记录。"), true);
+        return 1;
     }
 
     // undo
@@ -298,7 +442,7 @@ public final class CraftauditCommands {
             return 0;
         }
         int changed = UndoManager.applyUndo(executor);
-        src.sendSuccess(() -> Component.literal(String.format("§3[CraftAudit] 撤销完成：%d 个方块已恢复到回滚前状态。", changed)), true);
+        src.sendSuccess(() -> Component.literal(String.format("§3[CraftAudit] 撤销完成：%d 项更改已恢复。", changed)), true);
         return changed > 0 ? 1 : 0;
     }
 

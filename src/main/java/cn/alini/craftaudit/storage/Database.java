@@ -39,7 +39,6 @@ public final class Database {
 
         if (Config.isSqlite()) {
             Path dbPath = Config.sqliteDbPath() != null ? Config.sqliteDbPath() : sqliteDefaultPath;
-            // 自动创建数据库目录
             try {
                 Files.createDirectories(dbPath.getParent());
             } catch (IOException e) {
@@ -59,13 +58,8 @@ public final class Database {
         }
     }
 
-    public static Database get() {
-        return INSTANCE;
-    }
-
-    public static boolean isConnected() {
-        return INSTANCE != null;
-    }
+    public static Database get() { return INSTANCE; }
+    public static boolean isConnected() { return INSTANCE != null; }
 
     public boolean ping() {
         try (Statement st = conn.createStatement()) {
@@ -114,9 +108,7 @@ public final class Database {
     }
 
     private static void tryExec(Statement st, String sql) {
-        try {
-            st.execute(sql);
-        } catch (SQLException ignored) { }
+        try { st.execute(sql); } catch (SQLException ignored) { }
     }
 
     public void insertAsync(LogEntry e) {
@@ -139,15 +131,11 @@ public final class Database {
         });
     }
 
-    /**
-     * 分页查询指定位置的日志（精确坐标）
-     */
     public List<LogEntry> queryLogsAtPaged(String dimension, int x, int y, int z, String actionPattern, int page, int pageSize) {
         List<LogEntry> result = new ArrayList<>();
         int offset = (page - 1) * pageSize;
         String[] actions = actionPattern.split("\\|");
 
-        // 构造占位符 (?, ?, ...)
         StringBuilder actionsPlaceholder = new StringBuilder();
         for (int i = 0; i < actions.length; i++) {
             if (i > 0) actionsPlaceholder.append(",");
@@ -161,7 +149,6 @@ public final class Database {
             ps.setInt(2, x);
             ps.setInt(3, y);
             ps.setInt(4, z);
-            // 设置 action 参数
             for (int i = 0; i < actions.length; i++) {
                 ps.setString(5 + i, actions[i]);
             }
@@ -188,9 +175,6 @@ public final class Database {
         return result;
     }
 
-    /**
-     * 查询指定位置的总日志数（用于分页显示总页数）
-     */
     public int countLogsAt(String dimension, int x, int y, int z, String actionPattern) {
         String[] actions = actionPattern.split("\\|");
         StringBuilder actionsPlaceholder = new StringBuilder();
@@ -216,11 +200,7 @@ public final class Database {
         return 0;
     }
 
-    // ================= 新增：半径 + 时间范围查询 =================
-
-    /**
-     * 分页查询：指定维度中，中心(cx,cy,cz)半径radius内，且 time_ms >= sinceMs 的所有日志，按时间倒序
-     */
+    // 半径 + 时间范围查询
     public List<LogEntry> queryLogsNearPaged(String dimension, int cx, int cy, int cz, int radius, long sinceMs, int page, int pageSize) {
         List<LogEntry> result = new ArrayList<>();
         int offset = (page - 1) * pageSize;
@@ -262,9 +242,6 @@ public final class Database {
         return result;
     }
 
-    /**
-     * 统计：指定维度中，中心(cx,cy,cz)半径radius内，且 time_ms >= sinceMs 的所有日志数量
-     */
     public int countLogsNear(String dimension, int cx, int cy, int cz, int radius, long sinceMs) {
         int minX = cx - radius, maxX = cx + radius;
         int minY = cy - radius, maxY = cy + radius;
@@ -286,7 +263,8 @@ public final class Database {
         }
         return 0;
     }
-    // ADD INTO CLASS Database:
+
+    // 区域 + 时间（可按玩家过滤）
     public List<LogEntry> queryLogsRegionSince(String dimension,
                                                int minX, int maxX,
                                                int minY, int maxY,
@@ -338,6 +316,28 @@ public final class Database {
             LOGGER.error("区域时间查询失败", e);
         }
         return result;
+    }
+
+    // 新增：清理早于某时间的日志（返回删除条数；失败返回 -1）
+    public int deleteLogsBefore(long beforeMs) {
+        String sql = "DELETE FROM logs WHERE time_ms < ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, beforeMs);
+            int affected = ps.executeUpdate();
+
+            // 可选：SQLite 做一次 VACUUM 回收空间（非必要，可能耗时）
+            if (affected > 0 && dialect == Dialect.SQLITE) {
+                try (Statement st = conn.createStatement()) {
+                    st.execute("VACUUM");
+                } catch (SQLException e) {
+                    LOGGER.warn("SQLite VACUUM 失败：{}", e.toString());
+                }
+            }
+            return affected;
+        } catch (SQLException e) {
+            LOGGER.error("清理日志失败", e);
+            return -1;
+        }
     }
 
     public void close() {
