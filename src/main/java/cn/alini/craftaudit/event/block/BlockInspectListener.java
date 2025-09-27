@@ -102,9 +102,9 @@ public class BlockInspectListener {
         sendPageLine(player, x, y, z, page, totalPages, "block");
     }
 
-    // 右键：只显示交互日志，不含破坏和放置
+    // 右键：只显示交互日志，不含破坏和放置（加入 ignite，去掉 container_open）
     public static void showInteractLogsPaged(ServerPlayer player, String dimension, int x, int y, int z, int page) {
-        String actionPattern = "put|take|sign_edit|container_open|button_press|lever_pull|door_use";
+        String actionPattern = "put|take|sign_edit|ignite|button_press|lever_pull|door_use";
         int total = Database.get().countLogsAt(dimension, x, y, z, actionPattern);
         int totalPages = Math.max((total + PAGE_SIZE - 1) / PAGE_SIZE, 1);
         List<LogEntry> logs = Database.get().queryLogsAtPaged(dimension, x, y, z, actionPattern, page, PAGE_SIZE);
@@ -128,7 +128,7 @@ public class BlockInspectListener {
         double hoursAgo = (System.currentTimeMillis() - log.timeMillis()) / 1000.0 / 3600;
         String sign = log.action().equals("place") ? "+" : "-";
         ChatFormatting signColor = sign.equals("+") ? ChatFormatting.GOLD : ChatFormatting.RED;
-        MutableComponent msg = Component.literal(String.format("%.1fh 前 | ", hoursAgo)).withStyle(ChatFormatting.GRAY);
+        MutableComponent msg = Component.literal(formatAgoPrefix(log.timeMillis())).withStyle(ChatFormatting.GRAY);
         msg.append(Component.literal(sign).withStyle(signColor));
         msg.append(Component.literal(" "));
         msg.append(Component.literal(log.player()).withStyle(ChatFormatting.BLUE));
@@ -145,11 +145,11 @@ public class BlockInspectListener {
     private static MutableComponent formatLogCoreProtect(LogEntry log) {
         double hoursAgo = (System.currentTimeMillis() - log.timeMillis()) / 1000.0 / 3600;
         String action = log.action();
-        String sign = (action.equals("put") || action.equals("sign_edit") || action.equals("container_open")) ? "+" : "-";
+        String sign = (action.equals("put") || action.equals("sign_edit")) ? "+" : "-";
         ChatFormatting signColor = sign.equals("+") ? ChatFormatting.GOLD : ChatFormatting.RED;
         String actionText;
         ChatFormatting actionColor;
-        MutableComponent msg = Component.literal(String.format("%.1fh 前 | ", hoursAgo)).withStyle(ChatFormatting.GRAY);
+        MutableComponent msg = Component.literal(formatAgoPrefix(log.timeMillis())).withStyle(ChatFormatting.GRAY);
         msg.append(Component.literal(sign).withStyle(signColor));
         msg.append(Component.literal(" "));
         msg.append(Component.literal(log.player()).withStyle(ChatFormatting.BLUE));
@@ -188,9 +188,9 @@ public class BlockInspectListener {
                 msg.append(Component.literal(NameLocalization.blockName(log.target())).withStyle(ChatFormatting.AQUA));
                 msg.append(Component.literal(" 文本: " + log.data()).withStyle(ChatFormatting.GRAY));
                 break;
-            case "container_open":
-                actionText = "打开了容器";
-                actionColor = ChatFormatting.DARK_GREEN;
+            case "ignite":
+                actionText = "点燃了";
+                actionColor = ChatFormatting.RED;
                 msg.append(Component.literal(actionText).withStyle(actionColor));
                 msg.append(Component.literal(" "));
                 msg.append(Component.literal(NameLocalization.blockName(log.target())).withStyle(ChatFormatting.AQUA));
@@ -269,5 +269,25 @@ public class BlockInspectListener {
             );
         }
         player.sendSystemMessage(pageLine);
+    }
+    // 新增：时间格式化（自动 s/m/h/d），返回带“前 | ”的前缀
+    private static String formatAgoPrefix(long timeMs) {
+        long deltaMs = System.currentTimeMillis() - timeMs;
+        if (deltaMs < 0) deltaMs = 0;
+
+        long sec = deltaMs / 1000;
+        if (sec < 60) {
+            return sec + "s 前 | ";
+        }
+        long min = sec / 60;
+        if (min < 60) {
+            return min + "m 前 | ";
+        }
+        double hours = min / 60.0;
+        if (hours < 24) {
+            return String.format(java.util.Locale.ROOT, "%.1fh 前 | ", hours);
+        }
+        double days = hours / 24.0;
+        return String.format(java.util.Locale.ROOT, "%.1fd 前 | ", days);
     }
 }
