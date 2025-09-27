@@ -68,27 +68,6 @@ public class BlockLogListener {
             ));
         }
     }
-    //
-    @SubscribeEvent
-    public static void onContainerUse(PlayerInteractEvent.RightClickBlock event) {
-        var player = event.getEntity();
-        if (player == null || player.level().isClientSide()) return;
-        if (AuditModeManager.isAuditing(player.getUUID())) return;
-
-        var pos = event.getPos();
-        BlockEntity be = player.level().getBlockEntity(pos);
-        if (be != null && isContainer(be)) {
-            Database.get().insertAsync(new LogEntry(
-                    System.currentTimeMillis(),
-                    player.level().dimension().location().toString(),
-                    pos.getX(), pos.getY(), pos.getZ(),
-                    player.getName().getString(),
-                    "container_open",
-                    be.getType().toString(),
-                    ""
-            ));
-        }
-    }
     // 特殊方块交互（按钮、拉杆、门等）
     @SubscribeEvent
     public static void onSpecialBlockUse(PlayerInteractEvent.RightClickBlock event) {

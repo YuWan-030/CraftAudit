@@ -1,13 +1,12 @@
 package cn.alini.craftaudit.mixin;
 
-import cn.alini.craftaudit.event.container.ContainerPosTracker;
+import cn.alini.craftaudit.event.container.ContainerSessionTracker;
 import cn.alini.craftaudit.storage.Database;
 import cn.alini.craftaudit.storage.LogEntry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
-import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.spongepowered.asm.mixin.Mixin;
@@ -15,94 +14,48 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import java.util.*;
+import java.util.List;
+import java.util.Map;
 
 @Mixin(AbstractContainerMenu.class)
 public class AbstractContainerMenuMixin {
-    private List<ItemStack> craftaudit_openSnapshot = null;
 
-    @Inject(method = "broadcastChanges", at = @At("HEAD"))
-    private void onBroadcastChanges(CallbackInfo ci) {
-        AbstractContainerMenu menu = (AbstractContainerMenu)(Object)this;
-        if (this.craftaudit_openSnapshot == null) {
-            this.craftaudit_openSnapshot = snapshotContainerSlots(menu);
-        }
-    }
+    // 不再在 Mixin 里维护 open 快照/坐标，全部交给 ContainerSessionTracker
 
     @Inject(method = "removed", at = @At("HEAD"))
     private void onRemoved(Player player, CallbackInfo ci) {
-        AbstractContainerMenu menu = (AbstractContainerMenu)(Object)this;
         if (!(player instanceof ServerPlayer serverPlayer)) return;
+        AbstractContainerMenu menu = (AbstractContainerMenu)(Object)this;
 
-        List<ItemStack> before = this.craftaudit_openSnapshot;
-        List<ItemStack> after = snapshotContainerSlots(menu);
+        // 取回该菜单的会话（与 Open 时绑定的那个），失败则不记录
+        ContainerSessionTracker.Session session = ContainerSessionTracker.takeSession(menu);
+        if (session == null) return;
 
-        Map<String, Integer> diff = compare(before, after);
+        // 生成关闭时快照并计算差异
+        List<ItemStack> after = ContainerSessionTracker.snapshotContainerSlots(menu);
+        Map<String, Integer> diff = ContainerSessionTracker.compare(session.openSnapshot, after);
+        if (diff.isEmpty()) return;
 
-        if (diff != null && !diff.isEmpty()) {
-            // 直接从 Tracker 取坐标（不再从菜单里扒）
-            ContainerPosTracker.PosAndDim pad = ContainerPosTracker.takeActive(serverPlayer.getUUID(), serverPlayer);
-            BlockPos bp = pad.pos();
-            String dimension = pad.dimension();
-            String target = menu.getClass().getName();
+        BlockPos bp = session.pos;
+        String dim = session.dimension;
+        String target = session.menuClassName; // menu.getClass().getName() 也可以
 
-            for (Map.Entry<String, Integer> e : diff.entrySet()) {
-                String itemId = e.getKey();
-                int count = e.getValue();
-                if (count == 0) continue;
-                String action = count > 0 ? "put" : "take";
-                int absCount = Math.abs(count);
+        for (Map.Entry<String, Integer> e : diff.entrySet()) {
+            String itemId = e.getKey();
+            int delta = e.getValue();
+            if (delta == 0) continue;
+            String action = delta > 0 ? "put" : "take";
+            int absCount = Math.abs(delta);
 
-                Database.get().insertAsync(new LogEntry(
-                        System.currentTimeMillis(),
-                        dimension,
-                        bp.getX(), bp.getY(), bp.getZ(),
-                        serverPlayer.getName().getString(),
-                        action,
-                        target,
-                        String.format("{\"item\":\"%s\",\"count\":%d}", itemId, absCount)
-                ));
-            }
+            Database.get().insertAsync(new LogEntry(
+                    System.currentTimeMillis(),
+                    dim,
+                    bp.getX(), bp.getY(), bp.getZ(),
+                    serverPlayer.getName().getString(),
+                    action,
+                    target,
+                    String.format("{\"item\":\"%s\",\"count\":%d}", itemId, absCount)
+            ));
         }
-
-        this.craftaudit_openSnapshot = null;
-    }
-
-    /**
-     * 只排除玩家背包/饰品/末影箱等，快照容器槽
-     */
-    private List<ItemStack> snapshotContainerSlots(AbstractContainerMenu menu) {
-        List<ItemStack> items = new ArrayList<>();
-        for (Slot slot : menu.slots) {
-            // 跳过玩家背包槽
-            if (slot.container instanceof net.minecraft.world.entity.player.Inventory) continue;
-            // 跳过常见饰品与末影箱等
-            String name = slot.container.getClass().getName().toLowerCase();
-            if (name.contains("curio") || name.contains("trinket") || name.contains("bauble")) continue;
-            if (name.contains("enderchest")) continue;
-
-            ItemStack stack = slot.getItem();
-            if (!stack.isEmpty()) items.add(stack.copy());
-        }
-        return items;
-    }
-
-    private Map<String, Integer> compare(List<ItemStack> before, List<ItemStack> after) {
-        Map<String, Integer> map = new HashMap<>();
-        if (before != null) {
-            for (ItemStack stack : before) {
-                String name = ForgeRegistries.ITEMS.getKey(stack.getItem()).toString();
-                map.put(name, map.getOrDefault(name, 0) - stack.getCount());
-            }
-        }
-        if (after != null) {
-            for (ItemStack stack : after) {
-                String name = ForgeRegistries.ITEMS.getKey(stack.getItem()).toString();
-                map.put(name, map.getOrDefault(name, 0) + stack.getCount());
-            }
-        }
-        // 清理 0 值
-        map.entrySet().removeIf(e -> e.getValue() == 0);
-        return map;
     }
 }

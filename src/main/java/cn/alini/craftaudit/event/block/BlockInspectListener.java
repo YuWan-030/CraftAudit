@@ -128,7 +128,7 @@ public class BlockInspectListener {
         double hoursAgo = (System.currentTimeMillis() - log.timeMillis()) / 1000.0 / 3600;
         String sign = log.action().equals("place") ? "+" : "-";
         ChatFormatting signColor = sign.equals("+") ? ChatFormatting.GOLD : ChatFormatting.RED;
-        MutableComponent msg = Component.literal(String.format("%.1fh ago | ", hoursAgo)).withStyle(ChatFormatting.GRAY);
+        MutableComponent msg = Component.literal(String.format("%.1fh 前 | ", hoursAgo)).withStyle(ChatFormatting.GRAY);
         msg.append(Component.literal(sign).withStyle(signColor));
         msg.append(Component.literal(" "));
         msg.append(Component.literal(log.player()).withStyle(ChatFormatting.BLUE));
@@ -149,7 +149,7 @@ public class BlockInspectListener {
         ChatFormatting signColor = sign.equals("+") ? ChatFormatting.GOLD : ChatFormatting.RED;
         String actionText;
         ChatFormatting actionColor;
-        MutableComponent msg = Component.literal(String.format("%.1fh ago | ", hoursAgo)).withStyle(ChatFormatting.GRAY);
+        MutableComponent msg = Component.literal(String.format("%.1fh 前 | ", hoursAgo)).withStyle(ChatFormatting.GRAY);
         msg.append(Component.literal(sign).withStyle(signColor));
         msg.append(Component.literal(" "));
         msg.append(Component.literal(log.player()).withStyle(ChatFormatting.BLUE));
