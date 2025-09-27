@@ -38,6 +38,12 @@ public final class CraftauditCommands {
                                 .executes(ctx -> inspectAudit(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "page")))
                         )
                 )
+                .then(Commands.literal("blocklog")
+                        .executes(ctx -> inspectBlockAudit(ctx.getSource(), 1))
+                        .then(Commands.argument("page", IntegerArgumentType.integer(1, 100))
+                                .executes(ctx -> inspectBlockAudit(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "page")))
+                        )
+                )
         );
 
         // /ca i 为 inspect 的别名
@@ -52,6 +58,12 @@ public final class CraftauditCommands {
                         .executes(ctx -> inspectAudit(ctx.getSource(), 1))
                         .then(Commands.argument("page", IntegerArgumentType.integer(1, 100))
                                 .executes(ctx -> inspectAudit(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "page")))
+                        )
+                )
+                .then(Commands.literal("blocklog")
+                        .executes(ctx -> inspectBlockAudit(ctx.getSource(), 1))
+                        .then(Commands.argument("page", IntegerArgumentType.integer(1, 100))
+                                .executes(ctx -> inspectBlockAudit(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "page")))
                         )
                 )
         );
@@ -91,7 +103,7 @@ public final class CraftauditCommands {
     }
 
     /**
-     * 查询指定页的方块/容器日志（默认查玩家脚下方块）
+     * 查询指定页的方块/容器日志
      */
     private static int inspectAudit(CommandSourceStack src, int page) {
         var player = src.getPlayer();
@@ -107,6 +119,24 @@ public final class CraftauditCommands {
         }
         // 推荐只调用右键交互日志分页
         BlockInspectListener.queryInteractLogPage(player, page);
+        return 1;
+    }
+    /**
+     * 查询指定页的方块日志
+     */
+    private static int inspectBlockAudit(CommandSourceStack src, int page) {
+        var player = src.getPlayer();
+        if (player == null) {
+            src.sendFailure(Component.literal("§c[CraftAudit] 只能由玩家使用该命令！"));
+            return 0;
+        }
+        // 查询日志时自动开启审计模式（如果没开）
+        UUID uuid = player.getUUID();
+        if (!AuditModeManager.isAuditing(uuid)) {
+            AuditModeManager.enter(uuid);
+            src.sendSuccess(() -> Component.literal("§3[CraftAudit] 已进入审计模式。"), false);
+        }
+        BlockInspectListener.queryBlockLogPage(player, page);
         return 1;
     }
 }

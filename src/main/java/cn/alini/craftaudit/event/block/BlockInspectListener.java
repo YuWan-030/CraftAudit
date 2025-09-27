@@ -1,7 +1,6 @@
 package cn.alini.craftaudit.event.block;
 
 import cn.alini.craftaudit.AuditModeManager;
-import cn.alini.craftaudit.Craftaudit;
 import cn.alini.craftaudit.storage.Database;
 import cn.alini.craftaudit.storage.LogEntry;
 import cn.alini.craftaudit.util.NameLocalization;
@@ -18,18 +17,18 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-@Mod.EventBusSubscriber(modid = Craftaudit.MODID)
+@Mod.EventBusSubscriber
 public class BlockInspectListener {
     private static final int PAGE_SIZE = 7;
-
-    // 玩家最近一次查询的方块坐标和维度
     private static final Map<UUID, BlockPos> auditQueryPos = new HashMap<>();
     private static final Map<UUID, String> auditQueryDim = new HashMap<>();
-
+    private static final Map<UUID, Long> lastRightClickTime = new HashMap<>();
+    private static final Map<UUID, BlockPos> lastRightClickPos = new HashMap<>();
     // 左键：只输出破坏和放置
     @SubscribeEvent
     public static void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
+        if (player.level().isClientSide()) return;
         if (!AuditModeManager.isAuditing(player.getUUID())) return;
         var pos = event.getPos();
         var dimension = player.level().dimension().location().toString();
@@ -43,9 +42,17 @@ public class BlockInspectListener {
     @SubscribeEvent
     public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
+        if (player.level().isClientSide()) return;
         if (!AuditModeManager.isAuditing(player.getUUID())) return;
+        if (event.getHand() != net.minecraft.world.InteractionHand.MAIN_HAND) return;
+
+        long now = System.currentTimeMillis() / 50; // tick
         var pos = event.getPos();
         var dimension = player.level().dimension().location().toString();
+        if (lastRightClickTime.getOrDefault(player.getUUID(), 0L) == now
+                && pos.equals(lastRightClickPos.get(player.getUUID()))) {
+            return; // 同 tick 同坐标只处理一次
+        }
         auditQueryPos.put(player.getUUID(), pos);
         auditQueryDim.put(player.getUUID(), dimension);
         showInteractLogsPaged(player, dimension, pos.getX(), pos.getY(), pos.getZ(), 1);
@@ -82,7 +89,7 @@ public class BlockInspectListener {
         List<LogEntry> logs = Database.get().queryLogsAtPaged(dimension, x, y, z, actionPattern, page, PAGE_SIZE);
 
         player.sendSystemMessage(Component.literal(
-                String.format("§3-----方块变更记录-----§7(x%d/y%d/z%d)", dimension, x, y, z)
+                String.format("§7-----§3方块变更记录§7-----(%s x%d/y%d/z%d)", dimension, x, y, z)
         ));
         if (logs.isEmpty()) {
             player.sendSystemMessage(Component.literal("§7无记录。"));
@@ -103,7 +110,7 @@ public class BlockInspectListener {
         List<LogEntry> logs = Database.get().queryLogsAtPaged(dimension, x, y, z, actionPattern, page, PAGE_SIZE);
 
         player.sendSystemMessage(Component.literal(
-                String.format("§3-----交互记录-----§7(x%d/y%d/z%d)", dimension, x, y, z)
+                String.format("§7-----§3交互记录§7-----(%s x%d/y%d/z%d)", dimension, x, y, z)
         ));
         if (logs.isEmpty()) {
             player.sendSystemMessage(Component.literal("§7无记录。"));
@@ -116,15 +123,14 @@ public class BlockInspectListener {
         sendPageLine(player, x, y, z, page, totalPages, "interact");
     }
 
-    /**
-     * 方块日志（只输出放置、破坏，玩家名前加正负号）
-     */
+    // 方块日志（只输出放置、破坏，玩家名前加彩色正负号）
     private static MutableComponent formatBlockLogCoreProtect(LogEntry log) {
         double hoursAgo = (System.currentTimeMillis() - log.timeMillis()) / 1000.0 / 3600;
         String sign = log.action().equals("place") ? "+" : "-";
         ChatFormatting signColor = sign.equals("+") ? ChatFormatting.GOLD : ChatFormatting.RED;
-        MutableComponent msg = Component.literal(String.format("%.1fh ago | %s ", hoursAgo, sign)).withStyle(ChatFormatting.GRAY);
+        MutableComponent msg = Component.literal(String.format("%.1fh ago | ", hoursAgo)).withStyle(ChatFormatting.GRAY);
         msg.append(Component.literal(sign).withStyle(signColor));
+        msg.append(Component.literal(" "));
         msg.append(Component.literal(log.player()).withStyle(ChatFormatting.BLUE));
         msg.append(Component.literal(" "));
         ChatFormatting actionColor = log.action().equals("place") ? ChatFormatting.WHITE : ChatFormatting.LIGHT_PURPLE;
@@ -135,9 +141,7 @@ public class BlockInspectListener {
         return msg;
     }
 
-    /**
-     * 通用交互日志（右键所有类型，不含破坏和放置，玩家名前加正负号）
-     */
+    // 通用交互日志（右键所有类型，玩家名前加彩色正负号）
     private static MutableComponent formatLogCoreProtect(LogEntry log) {
         double hoursAgo = (System.currentTimeMillis() - log.timeMillis()) / 1000.0 / 3600;
         String action = log.action();
@@ -145,10 +149,9 @@ public class BlockInspectListener {
         ChatFormatting signColor = sign.equals("+") ? ChatFormatting.GOLD : ChatFormatting.RED;
         String actionText;
         ChatFormatting actionColor;
-        MutableComponent msg = Component.literal(String.format("%.1fh ago | %s ", hoursAgo, sign)).withStyle(ChatFormatting.GRAY);
+        MutableComponent msg = Component.literal(String.format("%.1fh ago | ", hoursAgo)).withStyle(ChatFormatting.GRAY);
         msg.append(Component.literal(sign).withStyle(signColor));
-
-        // 玩家名
+        msg.append(Component.literal(" "));
         msg.append(Component.literal(log.player()).withStyle(ChatFormatting.BLUE));
         msg.append(Component.literal(" "));
 
@@ -226,10 +229,14 @@ public class BlockInspectListener {
     // 分页按钮
     private static void sendPageLine(ServerPlayer player, int x, int y, int z, int page, int totalPages, String type) {
         MutableComponent pageLine = Component.literal(String.format("第 %d/%d 页 ", page, totalPages)).withStyle(ChatFormatting.GRAY);
+
+        // 选择命令前缀
+        String cmd = type.equals("block") ? "/ca blocklog " : "/ca log ";
+
         if (page > 1) {
             pageLine.append(
                     Component.literal("◀ ").withStyle(style -> style
-                            .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/ca log " + (page - 1)))
+                            .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, cmd + (page - 1)))
                             .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal("上一页")))
                             .withColor(ChatFormatting.AQUA)
                     )
@@ -243,7 +250,7 @@ public class BlockInspectListener {
                 int finalI = i;
                 pageLine.append(
                         Component.literal(finalI + "").withStyle(style -> style
-                                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/ca log " + finalI))
+                                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, cmd + finalI))
                                 .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal("跳转到第 " + finalI + " 页")))
                                 .withColor(ChatFormatting.AQUA)
                         )
@@ -255,7 +262,7 @@ public class BlockInspectListener {
         if (page < totalPages) {
             pageLine.append(
                     Component.literal("▶").withStyle(style -> style
-                            .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/ca log " + (page + 1)))
+                            .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, cmd + (page + 1)))
                             .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal("下一页")))
                             .withColor(ChatFormatting.AQUA)
                     )

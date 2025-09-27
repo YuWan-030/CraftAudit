@@ -204,15 +204,21 @@ public final class Database {
      * @return 该位置的日志总数
      */
     public int countLogsAt(String dimension, int x, int y, int z, String actionPattern) {
-        String sql = "SELECT COUNT(*) FROM logs WHERE dimension=? AND x=? AND y=? AND z=? AND (action=? OR action=?)";
+        String[] actions = actionPattern.split("\\|");
+        StringBuilder actionsPlaceholder = new StringBuilder();
+        for (int i = 0; i < actions.length; i++) {
+            if (i > 0) actionsPlaceholder.append(",");
+            actionsPlaceholder.append("?");
+        }
+        String sql = "SELECT COUNT(*) FROM logs WHERE dimension=? AND x=? AND y=? AND z=? AND action IN (" + actionsPlaceholder + ")";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, dimension);
             ps.setInt(2, x);
             ps.setInt(3, y);
             ps.setInt(4, z);
-            String[] actions = actionPattern.split("\\|");
-            ps.setString(5, actions[0]);
-            ps.setString(6, actions.length > 1 ? actions[1] : actions[0]);
+            for (int i = 0; i < actions.length; i++) {
+                ps.setString(5 + i, actions[i]);
+            }
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rs.getInt(1);
             }
