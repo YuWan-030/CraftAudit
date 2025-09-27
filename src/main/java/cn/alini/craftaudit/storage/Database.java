@@ -140,15 +140,7 @@ public final class Database {
     }
 
     /**
-     * 分页查询指定位置的日志
-     * @param dimension 维度
-     * @param x 坐标
-     * @param y 坐标
-     * @param z 坐标
-     * @param actionPattern 形如 "break|place", "put|take"
-     * @param page 页码，从1开始
-     * @param pageSize 每页条数
-     * @return 日志列表
+     * 分页查询指定位置的日志（精确坐标）
      */
     public List<LogEntry> queryLogsAtPaged(String dimension, int x, int y, int z, String actionPattern, int page, int pageSize) {
         List<LogEntry> result = new ArrayList<>();
@@ -161,7 +153,9 @@ public final class Database {
             if (i > 0) actionsPlaceholder.append(",");
             actionsPlaceholder.append("?");
         }
-        String sql = "SELECT time_ms, dimension, x, y, z, player, action, target, data FROM logs WHERE dimension=? AND x=? AND y=? AND z=? AND action IN (" + actionsPlaceholder + ") ORDER BY time_ms DESC LIMIT ? OFFSET ?";
+        String sql = "SELECT time_ms, dimension, x, y, z, player, action, target, data " +
+                "FROM logs WHERE dimension=? AND x=? AND y=? AND z=? AND action IN (" + actionsPlaceholder + ") " +
+                "ORDER BY time_ms DESC LIMIT ? OFFSET ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, dimension);
             ps.setInt(2, x);
@@ -196,12 +190,6 @@ public final class Database {
 
     /**
      * 查询指定位置的总日志数（用于分页显示总页数）
-     * @param dimension 维度
-     * @param x 坐标
-     * @param y 坐标
-     * @param z 坐标
-     * @param actionPattern 支持 "break|place", "put|take"
-     * @return 该位置的日志总数
      */
     public int countLogsAt(String dimension, int x, int y, int z, String actionPattern) {
         String[] actions = actionPattern.split("\\|");
@@ -226,6 +214,130 @@ public final class Database {
             LOGGER.error("统计日志失败", e);
         }
         return 0;
+    }
+
+    // ================= 新增：半径 + 时间范围查询 =================
+
+    /**
+     * 分页查询：指定维度中，中心(cx,cy,cz)半径radius内，且 time_ms >= sinceMs 的所有日志，按时间倒序
+     */
+    public List<LogEntry> queryLogsNearPaged(String dimension, int cx, int cy, int cz, int radius, long sinceMs, int page, int pageSize) {
+        List<LogEntry> result = new ArrayList<>();
+        int offset = (page - 1) * pageSize;
+
+        int minX = cx - radius, maxX = cx + radius;
+        int minY = cy - radius, maxY = cy + radius;
+        int minZ = cz - radius, maxZ = cz + radius;
+
+        String sql = "SELECT time_ms, dimension, x, y, z, player, action, target, data " +
+                "FROM logs WHERE dimension=? AND time_ms>=? " +
+                "AND x BETWEEN ? AND ? AND y BETWEEN ? AND ? AND z BETWEEN ? AND ? " +
+                "ORDER BY time_ms DESC LIMIT ? OFFSET ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, dimension);
+            ps.setLong(2, sinceMs);
+            ps.setInt(3, minX); ps.setInt(4, maxX);
+            ps.setInt(5, minY); ps.setInt(6, maxY);
+            ps.setInt(7, minZ); ps.setInt(8, maxZ);
+            ps.setInt(9, pageSize);
+            ps.setInt(10, offset);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.add(new LogEntry(
+                            rs.getLong("time_ms"),
+                            rs.getString("dimension"),
+                            rs.getInt("x"),
+                            rs.getInt("y"),
+                            rs.getInt("z"),
+                            rs.getString("player"),
+                            rs.getString("action"),
+                            rs.getString("target"),
+                            rs.getString("data")
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.error("半径查询失败", e);
+        }
+        return result;
+    }
+
+    /**
+     * 统计：指定维度中，中心(cx,cy,cz)半径radius内，且 time_ms >= sinceMs 的所有日志数量
+     */
+    public int countLogsNear(String dimension, int cx, int cy, int cz, int radius, long sinceMs) {
+        int minX = cx - radius, maxX = cx + radius;
+        int minY = cy - radius, maxY = cy + radius;
+        int minZ = cz - radius, maxZ = cz + radius;
+
+        String sql = "SELECT COUNT(*) FROM logs WHERE dimension=? AND time_ms>=? " +
+                "AND x BETWEEN ? AND ? AND y BETWEEN ? AND ? AND z BETWEEN ? AND ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, dimension);
+            ps.setLong(2, sinceMs);
+            ps.setInt(3, minX); ps.setInt(4, maxX);
+            ps.setInt(5, minY); ps.setInt(6, maxY);
+            ps.setInt(7, minZ); ps.setInt(8, maxZ);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt(1);
+            }
+        } catch (SQLException e) {
+            LOGGER.error("统计半径查询失败", e);
+        }
+        return 0;
+    }
+    // ADD INTO CLASS Database:
+    public List<LogEntry> queryLogsRegionSince(String dimension,
+                                               int minX, int maxX,
+                                               int minY, int maxY,
+                                               int minZ, int maxZ,
+                                               long sinceMs,
+                                               List<String> actions,
+                                               String player /* 可为 null */) {
+        List<LogEntry> result = new ArrayList<>();
+        if (actions == null || actions.isEmpty()) return result;
+
+        StringBuilder in = new StringBuilder();
+        for (int i = 0; i < actions.size(); i++) {
+            if (i > 0) in.append(",");
+            in.append("?");
+        }
+        String sql = "SELECT time_ms, dimension, x, y, z, player, action, target, data " +
+                "FROM logs WHERE dimension=? AND time_ms>=? " +
+                "AND x BETWEEN ? AND ? AND y BETWEEN ? AND ? AND z BETWEEN ? AND ? " +
+                "AND action IN (" + in + ") ";
+        if (player != null) sql += "AND player=? ";
+        sql += "ORDER BY time_ms DESC";
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            int idx = 1;
+            ps.setString(idx++, dimension);
+            ps.setLong(idx++, sinceMs);
+            ps.setInt(idx++, minX); ps.setInt(idx++, maxX);
+            ps.setInt(idx++, minY); ps.setInt(idx++, maxY);
+            ps.setInt(idx++, minZ); ps.setInt(idx++, maxZ);
+            for (String a : actions) ps.setString(idx++, a);
+            if (player != null) ps.setString(idx++, player);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.add(new LogEntry(
+                            rs.getLong("time_ms"),
+                            rs.getString("dimension"),
+                            rs.getInt("x"),
+                            rs.getInt("y"),
+                            rs.getInt("z"),
+                            rs.getString("player"),
+                            rs.getString("action"),
+                            rs.getString("target"),
+                            rs.getString("data")
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.error("区域时间查询失败", e);
+        }
+        return result;
     }
 
     public void close() {
