@@ -4,15 +4,18 @@ import cn.alini.craftaudit.storage.Database;
 import cn.alini.craftaudit.storage.LogEntry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Container;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraftforge.event.entity.player.PlayerContainerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.registries.ForgeRegistries;
 
+import java.lang.reflect.Field;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -68,10 +71,12 @@ public final class ContainerSessionTracker {
             pos = pend.pos;
             dim = pend.dimension;
         } else {
+            // 放弃：虚拟容器（插件箱子等）或玩家直接打开背包
+            return;
             // 兜底：用玩家指向方块，否则脚下
-            BlockPos onPos = player.getOnPos();
-            pos = (onPos != null) ? onPos : player.blockPosition();
-            dim = player.level().dimension().location().toString();
+//            BlockPos onPos = player.getOnPos();
+//            pos = onPos;
+//            dim = player.level().dimension().location().toString();
         }
 
         // 构建打开时快照（只快照目标容器槽）
@@ -79,7 +84,6 @@ public final class ContainerSessionTracker {
 
         Session session = new Session(uuid, pos, dim, openSnapshot, menu.getClass().getName());
         sessionsByMenu.put(menu, session);
-
     }
 
     /**
@@ -95,14 +99,23 @@ public final class ContainerSessionTracker {
      * 注意：这里与 openSnapshot 的过滤策略要保持一致。
      */
     public static List<ItemStack> snapshotContainerSlots(AbstractContainerMenu menu) {
+        String menuName = menu.getClass().getName();
+
+        // 精确跳过 Curios
+        if (menuName.equals("top.theillusivec4.curios.common.inventory.container.CuriosContainerV2")) {
+            return Collections.emptyList();
+        }
+
         List<ItemStack> items = new ArrayList<>();
         for (Slot slot : menu.slots) {
             // 跳过玩家背包
             if (slot.container instanceof net.minecraft.world.entity.player.Inventory) continue;
-            // 跳过常见饰品/末影箱等（按需扩展）
+
+            // 其它虚拟容器
             String name = slot.container.getClass().getName().toLowerCase();
             if (name.contains("curio") || name.contains("trinket") || name.contains("bauble")) continue;
             if (name.contains("enderchest")) continue;
+            if (name.contains("lightmanscurrency")) continue;
 
             ItemStack stack = slot.getItem();
             if (!stack.isEmpty()) items.add(stack.copy());

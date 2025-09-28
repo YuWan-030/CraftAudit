@@ -5,6 +5,7 @@ import cn.alini.craftaudit.Craftaudit;
 import cn.alini.craftaudit.storage.Database;
 import cn.alini.craftaudit.storage.LogEntry;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -24,29 +25,50 @@ import java.util.List;
 @Mod.EventBusSubscriber(modid = Craftaudit.MODID)
 public class BlockLogListener {
 
-    // 方块放置（仅 BlockItem）
     @SubscribeEvent
-    public static void onBlockPlace(PlayerInteractEvent.RightClickBlock event) {
-        var player = event.getEntity();
-        if (player == null || player.level().isClientSide()) return;
-        // 禁止审计状态的玩家写入
+    public static void onBlockPlaced(BlockEvent.EntityPlaceEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) return;
+        if (player.level().isClientSide()) return;
         if (AuditModeManager.isAuditing(player.getUUID())) return;
 
-        var item = event.getItemStack();
-        if (!item.isEmpty() && item.getItem() instanceof net.minecraft.world.item.BlockItem blockItem) {
-            var pos = event.getPos().relative(event.getFace());
-            var block = blockItem.getBlock();
-            Database.get().insertAsync(new LogEntry(
-                    System.currentTimeMillis(),
-                    player.level().dimension().location().toString(),
-                    pos.getX(), pos.getY(), pos.getZ(),
-                    player.getName().getString(),
-                    "place",
-                    ForgeRegistries.BLOCKS.getKey(block).toString(),
-                    ""
-            ));
-        }
+        BlockState placed = event.getPlacedBlock();
+        BlockPos pos = event.getPos();
+        String targetId = ForgeRegistries.BLOCKS.getKey(placed.getBlock()).toString();
+
+        Database.get().insertAsync(new LogEntry(
+                System.currentTimeMillis(),
+                player.level().dimension().location().toString(),
+                pos.getX(), pos.getY(), pos.getZ(),
+                player.getName().getString(),
+                "place",
+                targetId,
+                ""
+        ));
     }
+
+//    // 方块放置（仅 BlockItem）
+//    @SubscribeEvent
+//    public static void onBlockPlace(PlayerInteractEvent.RightClickBlock event) {
+//        var player = event.getEntity();
+//        if (player == null || player.level().isClientSide()) return;
+//        // 禁止审计状态的玩家写入
+//        if (AuditModeManager.isAuditing(player.getUUID())) return;
+//
+//        var item = event.getItemStack();
+//        if (!item.isEmpty() && item.getItem() instanceof net.minecraft.world.item.BlockItem blockItem) {
+//            var pos = event.getPos().relative(event.getFace());
+//            var block = blockItem.getBlock();
+//            Database.get().insertAsync(new LogEntry(
+//                    System.currentTimeMillis(),
+//                    player.level().dimension().location().toString(),
+//                    pos.getX(), pos.getY(), pos.getZ(),
+//                    player.getName().getString(),
+//                    "place",
+//                    ForgeRegistries.BLOCKS.getKey(block).toString(),
+//                    ""
+//            ));
+//        }
+//    }
 
     // 告示牌文本修改
     @SubscribeEvent

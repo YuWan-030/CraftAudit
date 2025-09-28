@@ -24,7 +24,7 @@ import java.util.UUID;
 @Mod.EventBusSubscriber
 public class BlockInspectListener {
     private static final int PAGE_SIZE = 7;
-    private static final int NEAR_PAGE_SIZE = 12; // 半径查询分页大小
+    private static final int NEAR_PAGE_SIZE = 15; // 半径查询分页大小
 
     private static final Map<UUID, BlockPos> auditQueryPos = new HashMap<>();
     private static final Map<UUID, String> auditQueryDim = new HashMap<>();
