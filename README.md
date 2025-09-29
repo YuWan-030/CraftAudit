@@ -1,5 +1,8 @@
 # CraftAudit – Block/Entity Audit Logger & Rollback Tool (Forge)
 
+## Rely
+Requires Mincraft SQLite JDBC / Minecraft MySQL JDBC as a prerequisite
+
 ## Overview
 CraftAudit is a server-side audit mod/plugin for Minecraft Forge that records world changes made by players and the environment (block place/break, container I/O, ignition, item-frame/painting actions, bucket usage, kills, etc.). It provides in-place inspection, area queries, rollback/restore and undo features, supporting SQLite or MySQL storage.
 
