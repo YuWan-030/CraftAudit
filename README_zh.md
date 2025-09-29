@@ -1,5 +1,8 @@
 # CraftAudit – 方块/实体审计与回档工具 (Forge)
 
+## 依赖
+需要 Minrcraft SQLite JDBC / Minecraft MySQL JDBC 作为前置
+
 ## 简介
 CraftAudit 是一个服务器端的 Forge 审计模组，记录玩家与环境对世界的变更（方块放置/破坏、容器存取、点火、展示框与画交互、桶的使用、击杀等），提供实时查询、范围检索、回档/恢复与撤销功能，支持 SQLite 或 MySQL 存储。
 
