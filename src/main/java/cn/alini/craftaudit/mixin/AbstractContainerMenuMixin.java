@@ -20,25 +20,21 @@ import java.util.Map;
 @Mixin(AbstractContainerMenu.class)
 public class AbstractContainerMenuMixin {
 
-    // 不再在 Mixin 里维护 open 快照/坐标，全部交给 ContainerSessionTracker
-
     @Inject(method = "removed", at = @At("HEAD"))
     private void onRemoved(Player player, CallbackInfo ci) {
         if (!(player instanceof ServerPlayer serverPlayer)) return;
         AbstractContainerMenu menu = (AbstractContainerMenu)(Object)this;
 
-        // 取回该菜单的会话（与 Open 时绑定的那个），失败则不记录
         ContainerSessionTracker.Session session = ContainerSessionTracker.takeSession(menu);
         if (session == null) return;
 
-        // 生成关闭时快照并计算差异
         List<ItemStack> after = ContainerSessionTracker.snapshotContainerSlots(menu);
         Map<String, Integer> diff = ContainerSessionTracker.compare(session.openSnapshot, after);
         if (diff.isEmpty()) return;
 
         BlockPos bp = session.pos;
         String dim = session.dimension;
-        String target = session.menuClassName; // menu.getClass().getName() 也可以
+        String target = session.menuClassName;
 
         for (Map.Entry<String, Integer> e : diff.entrySet()) {
             String itemId = e.getKey();
@@ -52,6 +48,7 @@ public class AbstractContainerMenuMixin {
                     dim,
                     bp.getX(), bp.getY(), bp.getZ(),
                     serverPlayer.getName().getString(),
+                    serverPlayer.getUUID().toString(),
                     action,
                     target,
                     String.format("{\"item\":\"%s\",\"count\":%d}", itemId, absCount)

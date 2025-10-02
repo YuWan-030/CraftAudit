@@ -5,6 +5,7 @@ import cn.alini.craftaudit.storage.Database;
 import cn.alini.craftaudit.storage.LogEntry;
 import cn.alini.craftaudit.util.NameLocalization;
 import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
@@ -31,17 +32,43 @@ public class BlockInspectListener {
     private static final Map<UUID, Long> lastRightClickTime = new HashMap<>();
     private static final Map<UUID, BlockPos> lastRightClickPos = new HashMap<>();
 
+    // 新增：左键去重（同一坐标，短时间内只输出一次）
+    private static final Map<UUID, Long> lastLeftClickTime = new HashMap<>();
+    private static final Map<UUID, BlockPos> lastLeftClickPos = new HashMap<>();
+    // 左键去重窗口：允许同一坐标 4 tick 内只触发一次（可按需调整）
+    private static final long LEFT_CLICK_DEDUP_TICKS = 4;
+    // 在类里加上这两个常量（可按需调整）
+    private static final boolean REPLACE_PAGE = true;  // 开启“替换上一页”模式
+    private static final int CLEAR_LINES = 40;         // 清屏的空白行数量
+
+
     // 左键：只输出破坏和放置（含自然破坏）
     @SubscribeEvent
     public static void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
         if (player.level().isClientSide()) return;
         if (!AuditModeManager.isAuditing(player.getUUID())) return;
+        if (event.getHand() != net.minecraft.world.InteractionHand.MAIN_HAND) return;
 
         BlockPos pos = event.getPos();
+
+        // 去重：同一玩家、同一坐标、短时间窗口内不重复输出
+        long nowTick = System.currentTimeMillis() / 50; // 粗略 tick
+        UUID uid = player.getUUID();
+        Long lastTick = lastLeftClickTime.get(uid);
+        BlockPos lastPos = lastLeftClickPos.get(uid);
+        if (lastTick != null && lastPos != null
+                && pos.equals(lastPos)
+                && (nowTick - lastTick) <= LEFT_CLICK_DEDUP_TICKS) {
+            event.setCanceled(true); // 仍然阻止继续挖掘
+            return;
+        }
+        lastLeftClickTime.put(uid, nowTick);
+        lastLeftClickPos.put(uid, pos);
+
         String dimension = player.level().dimension().location().toString();
-        auditQueryPos.put(player.getUUID(), pos);
-        auditQueryDim.put(player.getUUID(), dimension);
+        auditQueryPos.put(uid, pos);
+        auditQueryDim.put(uid, dimension);
         showBlockLogsPaged(player, dimension, pos.getX(), pos.getY(), pos.getZ(), 1);
         event.setCanceled(true);
     }
@@ -99,7 +126,7 @@ public class BlockInspectListener {
         int total = Database.get().countLogsAt(dimension, x, y, z, actionPattern);
         int totalPages = Math.max((total + PAGE_SIZE - 1) / PAGE_SIZE, 1);
         List<LogEntry> logs = Database.get().queryLogsAtPaged(dimension, x, y, z, actionPattern, page, PAGE_SIZE);
-
+        clearBeforePage(player.createCommandSourceStack());
         player.sendSystemMessage(Component.literal(
                 String.format("§7-----§3方块变更记录§7-----(%s x%d/y%d/z%d)", dimension, x, y, z)
         ));
@@ -126,6 +153,7 @@ public class BlockInspectListener {
         int total = Database.get().countLogsAt(dimension, x, y, z, actionPattern);
         int totalPages = Math.max((total + PAGE_SIZE - 1) / PAGE_SIZE, 1);
         List<LogEntry> logs = Database.get().queryLogsAtPaged(dimension, x, y, z, actionPattern, page, PAGE_SIZE);
+        clearBeforePage(player.createCommandSourceStack());
 
         player.sendSystemMessage(Component.literal(
                 String.format("§7-----§3交互记录§7-----(%s x%d/y%d/z%d)", dimension, x, y, z)
@@ -149,6 +177,7 @@ public class BlockInspectListener {
         int total = Database.get().countLogsNear(dim, center.getX(), center.getY(), center.getZ(), radius, sinceMillis);
         int totalPages = Math.max((total + NEAR_PAGE_SIZE - 1) / NEAR_PAGE_SIZE, 1);
         List<LogEntry> logs = Database.get().queryLogsNearPaged(dim, center.getX(), center.getY(), center.getZ(), radius, sinceMillis, page, NEAR_PAGE_SIZE);
+        clearBeforePage(player.createCommandSourceStack());
 
         player.sendSystemMessage(Component.literal(
                 String.format("§7-----§3半径查询§7----- (维度: %s | 半径: %d | 时间: %s内 | 中心: x%d/y%d/z%d)", dim, radius, timeLabel, center.getX(), center.getY(), center.getZ())
@@ -179,7 +208,13 @@ public class BlockInspectListener {
 
         msg.append(Component.literal(sign).withStyle(signColor));
         msg.append(Component.literal(" "));
-        msg.append(Component.literal(log.player()).withStyle(ChatFormatting.BLUE));
+        // 玩家名 + 悬浮 UUID
+        String uuidText = log.playerUuid() != null ? log.playerUuid() : "未知";
+        MutableComponent nameComp = Component.literal(log.player()).withStyle(ChatFormatting.BLUE);
+        nameComp.withStyle(style -> style.withHoverEvent(
+                new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal("UUID: " + uuidText))
+        ));
+        msg.append(nameComp);
         msg.append(Component.literal(" "));
 
         switch (action) {
@@ -223,7 +258,13 @@ public class BlockInspectListener {
 
         msg.append(Component.literal(sign).withStyle(signColor));
         msg.append(Component.literal(" "));
-        msg.append(Component.literal(log.player()).withStyle(ChatFormatting.BLUE));
+        // 玩家名 + 悬浮 UUID
+        String uuidText = log.playerUuid() != null ? log.playerUuid() : "未知";
+        MutableComponent nameComp = Component.literal(log.player()).withStyle(ChatFormatting.BLUE);
+        nameComp.withStyle(style -> style.withHoverEvent(
+                new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal("UUID: " + uuidText))
+        ));
+        msg.append(nameComp);
         msg.append(Component.literal(" "));
 
         switch (action) {
@@ -314,6 +355,17 @@ public class BlockInspectListener {
         return msg;
     }
 
+    // 对外：统一渲染一条日志行（供命令 /ca check 复用）
+    public static MutableComponent renderLogLine(LogEntry log) {
+        MutableComponent line = (log.action().equals("break") || log.action().equals("place") || log.action().equals("natural_break"))
+                ? formatBlockLogCoreProtect(log)
+                : formatLogCoreProtect(log);
+        // 附带坐标
+        line.append(Component.literal(String.format(" @ %s x%d/y%d/z%d", log.dimension(), log.x(), log.y(), log.z()))
+                .withStyle(ChatFormatting.DARK_GRAY));
+        return line;
+    }
+
     // 分页按钮（坐标查询）
     private static void sendPageLine(ServerPlayer player, int x, int y, int z, int page, int totalPages, String type) {
         MutableComponent pageLine = Component.literal(String.format("第 %d/%d 页 ", page, totalPages)).withStyle(ChatFormatting.GRAY);
@@ -400,9 +452,18 @@ public class BlockInspectListener {
         }
         player.sendSystemMessage(pageLine);
     }
+    // 工具方法：在发送新一页前调用
+    private static void clearBeforePage(CommandSourceStack src) {
+        if (!REPLACE_PAGE) return;
+        ServerPlayer viewer = src.getPlayer();
+        if (viewer == null) return;
+        // 用空格而不是空字符串，确保客户端渲染出一整行
+        for (int i = 0; i < CLEAR_LINES; i++) {
+            viewer.sendSystemMessage(Component.literal(" "));
+        }
+    }
 
     // 时间格式化（自动 秒/分/时/天），数值零填充并保留一位小数，返回带“前 | ”的前缀
-    // 例：8秒 -> "08.0秒 前 | "；3分 -> "03.0分 前 | "；12时 -> "12.0时 前 | "；1.5天 -> "01.5天 前 | "
     private static String formatAgoPrefix(long timeMs) {
         long deltaMs = System.currentTimeMillis() - timeMs;
         if (deltaMs < 0) deltaMs = 0;

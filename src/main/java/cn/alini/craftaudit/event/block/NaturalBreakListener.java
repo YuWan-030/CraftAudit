@@ -18,12 +18,10 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.event.TickEvent;
 
-
 import java.util.*;
 
 @Mod.EventBusSubscriber(modid = Craftaudit.MODID)
 public class NaturalBreakListener {
-    // 在类里维护一个缓存
     private static final Map<Explosion, ExplosionData> explosionCache = new HashMap<>();
     private static final Set<String> loggedBlocks = new HashSet<>();
 
@@ -71,10 +69,10 @@ public class NaturalBreakListener {
                 BlockState before = e.getValue();
                 BlockState after = level.getBlockState(pos);
 
-                if (!after.isAir()) continue; // 没破坏就跳过
+                if (!after.isAir()) continue;
 
                 String key = getBlockKey(level, pos);
-                if (loggedBlocks.contains(key)) continue; // 已经记录过，跳过
+                if (loggedBlocks.contains(key)) continue;
                 loggedBlocks.add(key);
 
                 String targetId = ForgeRegistries.BLOCKS.getKey(before.getBlock()) == null
@@ -86,6 +84,7 @@ public class NaturalBreakListener {
                         level.dimension().location().toString(),
                         pos.getX(), pos.getY(), pos.getZ(),
                         "(爆炸)",
+                        null, // 环境事件无玩家，UUID 为空
                         "natural_break",
                         targetId,
                         "{\"cause\":\"explosion\"}"
@@ -96,41 +95,14 @@ public class NaturalBreakListener {
         }
     }
 
-    // 爆炸导致的方块破坏
-//    @SubscribeEvent
-//    public static void onExplosion(ExplosionEvent.Detonate event) {
-//        if (event.getLevel().isClientSide()) return;
-//        var level = event.getLevel();
-//        String dim = level.dimension().location().toString();
-//        long now = System.currentTimeMillis();
-//
-//        for (BlockPos pos : event.getAffectedBlocks()) {
-//            BlockState st = level.getBlockState(pos);
-//            if (st.isAir()) continue; // 空气不记录
-//            Block block = st.getBlock();
-//            String targetId = ForgeRegistries.BLOCKS.getKey(block) == null ? "unknown" : ForgeRegistries.BLOCKS.getKey(block).toString();
-//            Database.get().insertAsync(new LogEntry(
-//                    now,
-//                    dim,
-//                    pos.getX(), pos.getY(), pos.getZ(),
-//                    "(爆炸)",
-//                    "natural_break",
-//                    targetId,
-//                    "{\"cause\":\"explosion\"}"
-//            ));
-//        }
-//    }
-
-    // 液体放置替换了原方块（被淹没的火把/红石等）
     @SubscribeEvent
     public static void onFluidPlace(BlockEvent.FluidPlaceBlockEvent event) {
-        var levelAcc = event.getLevel(); // LevelAccessor
+        var levelAcc = event.getLevel();
         if (levelAcc.isClientSide()) return;
 
         BlockState oldSt = event.getOriginalState();
         if (oldSt.isAir()) return;
 
-        // 如果被液体替换（原来不是液体/空气）
         if (!(oldSt.getBlock() instanceof LiquidBlock) && !(event.getNewState().getBlock() instanceof BaseFireBlock)) {
             String dim = (levelAcc instanceof Level lvl)
                     ? lvl.dimension().location().toString()
@@ -142,6 +114,7 @@ public class NaturalBreakListener {
                     dim,
                     pos.getX(), pos.getY(), pos.getZ(),
                     "(环境)",
+                    null,
                     "natural_break",
                     targetId,
                     "{\"cause\":\"fluid\"}"
@@ -149,7 +122,6 @@ public class NaturalBreakListener {
         }
     }
 
-    // 重力方块开始下落（原位置视为被“自然破坏”）
     @SubscribeEvent
     public static void onFallingSpawn(EntityJoinLevelEvent event) {
         if (!(event.getEntity() instanceof FallingBlockEntity falling)) return;
@@ -165,6 +137,7 @@ public class NaturalBreakListener {
                 level.dimension().location().toString(),
                 pos.getX(), pos.getY(), pos.getZ(),
                 "(环境)",
+                null,
                 "natural_break",
                 targetId,
                 "{\"cause\":\"gravity\"}"

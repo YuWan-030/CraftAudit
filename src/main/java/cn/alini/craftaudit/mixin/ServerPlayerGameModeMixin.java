@@ -36,6 +36,7 @@ public class ServerPlayerGameModeMixin {
                     world.dimension().location().toString(),
                     pos.getX(), pos.getY(), pos.getZ(),
                     player.getName().getString(),
+                    player.getUUID().toString(),
                     "break",
                     blockId,
                     dataJson

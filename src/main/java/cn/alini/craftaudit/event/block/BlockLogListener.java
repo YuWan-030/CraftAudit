@@ -40,35 +40,12 @@ public class BlockLogListener {
                 player.level().dimension().location().toString(),
                 pos.getX(), pos.getY(), pos.getZ(),
                 player.getName().getString(),
+                player.getUUID().toString(),
                 "place",
                 targetId,
                 ""
         ));
     }
-
-//    // 方块放置（仅 BlockItem）
-//    @SubscribeEvent
-//    public static void onBlockPlace(PlayerInteractEvent.RightClickBlock event) {
-//        var player = event.getEntity();
-//        if (player == null || player.level().isClientSide()) return;
-//        // 禁止审计状态的玩家写入
-//        if (AuditModeManager.isAuditing(player.getUUID())) return;
-//
-//        var item = event.getItemStack();
-//        if (!item.isEmpty() && item.getItem() instanceof net.minecraft.world.item.BlockItem blockItem) {
-//            var pos = event.getPos().relative(event.getFace());
-//            var block = blockItem.getBlock();
-//            Database.get().insertAsync(new LogEntry(
-//                    System.currentTimeMillis(),
-//                    player.level().dimension().location().toString(),
-//                    pos.getX(), pos.getY(), pos.getZ(),
-//                    player.getName().getString(),
-//                    "place",
-//                    ForgeRegistries.BLOCKS.getKey(block).toString(),
-//                    ""
-//            ));
-//        }
-//    }
 
     // 告示牌文本修改
     @SubscribeEvent
@@ -90,6 +67,7 @@ public class BlockLogListener {
                     player.level().dimension().location().toString(),
                     pos.getX(), pos.getY(), pos.getZ(),
                     player.getName().getString(),
+                    player.getUUID().toString(),
                     "sign_edit",
                     ForgeRegistries.BLOCKS.getKey(player.level().getBlockState(pos).getBlock()).toString(),
                     data
@@ -114,18 +92,12 @@ public class BlockLogListener {
 
         String action = "ignite";
         String targetId = null;
-        BlockPos logPos = pos;
 
-        // 营火
         if (block instanceof CampfireBlock) {
             targetId = ForgeRegistries.BLOCKS.getKey(block).toString();
-        }
-        // 蜡烛或蜡烛蛋糕
-        else if (block instanceof CandleBlock || block instanceof CandleCakeBlock) {
+        } else if (block instanceof CandleBlock || block instanceof CandleCakeBlock) {
             targetId = ForgeRegistries.BLOCKS.getKey(block).toString();
-        }
-        // TNT 引燃
-        else if (block instanceof TntBlock) {
+        } else if (block instanceof TntBlock) {
             targetId = ForgeRegistries.BLOCKS.getKey(block).toString();
         }
 
@@ -133,17 +105,17 @@ public class BlockLogListener {
             Database.get().insertAsync(new LogEntry(
                     System.currentTimeMillis(),
                     level.dimension().location().toString(),
-                    logPos.getX(), logPos.getY(), logPos.getZ(),
+                    pos.getX(), pos.getY(), pos.getZ(),
                     player.getName().getString(),
+                    player.getUUID().toString(),
                     action,
                     targetId,
                     ""
             ));
-            // 不取消事件，让原版继续处理
         }
     }
 
-    // 放置火（火或灵魂火）：由打火石或火焰弹等在相邻格生成的火方块，用放置事件拿到最终方块和坐标
+    // 放置火（火或灵魂火）
     @SubscribeEvent
     public static void onFirePlaced(BlockEvent.EntityPlaceEvent event) {
         if (!(event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) return;
@@ -152,7 +124,7 @@ public class BlockLogListener {
 
         BlockState placed = event.getPlacedBlock();
         Block block = placed.getBlock();
-        if (!(block instanceof BaseFireBlock)) return; // 只记录火/灵魂火
+        if (!(block instanceof BaseFireBlock)) return;
 
         BlockPos pos = event.getPos();
         Database.get().insertAsync(new LogEntry(
@@ -160,6 +132,7 @@ public class BlockLogListener {
                 player.level().dimension().location().toString(),
                 pos.getX(), pos.getY(), pos.getZ(),
                 player.getName().getString(),
+                player.getUUID().toString(),
                 "ignite",
                 ForgeRegistries.BLOCKS.getKey(block).toString(),
                 ""
@@ -187,6 +160,7 @@ public class BlockLogListener {
                     player.level().dimension().location().toString(),
                     pos.getX(), pos.getY(), pos.getZ(),
                     player.getName().getString(),
+                    player.getUUID().toString(),
                     action,
                     ForgeRegistries.BLOCKS.getKey(block).toString(),
                     ""

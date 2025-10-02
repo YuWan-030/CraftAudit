@@ -81,6 +81,7 @@ public final class Database {
                       dimension TEXT NOT NULL,
                       x INTEGER NOT NULL, y INTEGER NOT NULL, z INTEGER NOT NULL,
                       player TEXT,
+                      uuid TEXT,
                       action TEXT NOT NULL,
                       target TEXT,
                       data TEXT
@@ -88,6 +89,8 @@ public final class Database {
                 """);
                 st.execute("CREATE INDEX IF NOT EXISTS idx_logs_pos ON logs(dimension, x, y, z)");
                 st.execute("CREATE INDEX IF NOT EXISTS idx_logs_time ON logs(time_ms)");
+                // 兼容老表：尝试补列
+                tryExec(st, "ALTER TABLE logs ADD COLUMN uuid TEXT");
             } else {
                 st.execute("""
                     CREATE TABLE IF NOT EXISTS logs(
@@ -96,6 +99,7 @@ public final class Database {
                       dimension VARCHAR(128) NOT NULL,
                       x INT NOT NULL, y INT NOT NULL, z INT NOT NULL,
                       player VARCHAR(64),
+                      uuid VARCHAR(36),
                       action VARCHAR(32) NOT NULL,
                       target VARCHAR(191),
                       data TEXT
@@ -103,6 +107,8 @@ public final class Database {
                 """);
                 tryExec(st, "CREATE INDEX idx_logs_pos ON logs(dimension, x, y, z)");
                 tryExec(st, "CREATE INDEX idx_logs_time ON logs(time_ms)");
+                // 兼容老表：尝试补列
+                tryExec(st, "ALTER TABLE logs ADD COLUMN uuid VARCHAR(36) NULL");
             }
         }
     }
@@ -114,16 +120,17 @@ public final class Database {
     public void insertAsync(LogEntry e) {
         writer.execute(() -> {
             try (PreparedStatement ps = conn.prepareStatement(
-                    "INSERT INTO logs(time_ms, dimension, x, y, z, player, action, target, data) VALUES (?,?,?,?,?,?,?,?,?)")) {
+                    "INSERT INTO logs(time_ms, dimension, x, y, z, player, uuid, action, target, data) VALUES (?,?,?,?,?,?,?,?,?,?)")) {
                 ps.setLong(1, e.timeMillis());
                 ps.setString(2, e.dimension());
                 ps.setInt(3, e.x());
                 ps.setInt(4, e.y());
                 ps.setInt(5, e.z());
                 ps.setString(6, e.player());
-                ps.setString(7, e.action());
-                ps.setString(8, e.target());
-                ps.setString(9, e.data());
+                ps.setString(7, e.playerUuid());
+                ps.setString(8, e.action());
+                ps.setString(9, e.target());
+                ps.setString(10, e.data());
                 ps.executeUpdate();
             } catch (SQLException ex) {
                 LOGGER.error("写入日志失败", ex);
@@ -141,7 +148,7 @@ public final class Database {
             if (i > 0) actionsPlaceholder.append(",");
             actionsPlaceholder.append("?");
         }
-        String sql = "SELECT time_ms, dimension, x, y, z, player, action, target, data " +
+        String sql = "SELECT time_ms, dimension, x, y, z, player, uuid, action, target, data " +
                 "FROM logs WHERE dimension=? AND x=? AND y=? AND z=? AND action IN (" + actionsPlaceholder + ") " +
                 "ORDER BY time_ms DESC LIMIT ? OFFSET ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -163,6 +170,7 @@ public final class Database {
                             rs.getInt("y"),
                             rs.getInt("z"),
                             rs.getString("player"),
+                            rs.getString("uuid"),
                             rs.getString("action"),
                             rs.getString("target"),
                             rs.getString("data")
@@ -209,7 +217,7 @@ public final class Database {
         int minY = cy - radius, maxY = cy + radius;
         int minZ = cz - radius, maxZ = cz + radius;
 
-        String sql = "SELECT time_ms, dimension, x, y, z, player, action, target, data " +
+        String sql = "SELECT time_ms, dimension, x, y, z, player, uuid, action, target, data " +
                 "FROM logs WHERE dimension=? AND time_ms>=? " +
                 "AND x BETWEEN ? AND ? AND y BETWEEN ? AND ? AND z BETWEEN ? AND ? " +
                 "ORDER BY time_ms DESC LIMIT ? OFFSET ?";
@@ -230,6 +238,7 @@ public final class Database {
                             rs.getInt("y"),
                             rs.getInt("z"),
                             rs.getString("player"),
+                            rs.getString("uuid"),
                             rs.getString("action"),
                             rs.getString("target"),
                             rs.getString("data")
@@ -280,7 +289,7 @@ public final class Database {
             if (i > 0) in.append(",");
             in.append("?");
         }
-        String sql = "SELECT time_ms, dimension, x, y, z, player, action, target, data " +
+        String sql = "SELECT time_ms, dimension, x, y, z, player, uuid, action, target, data " +
                 "FROM logs WHERE dimension=? AND time_ms>=? " +
                 "AND x BETWEEN ? AND ? AND y BETWEEN ? AND ? AND z BETWEEN ? AND ? " +
                 "AND action IN (" + in + ") ";
@@ -306,6 +315,7 @@ public final class Database {
                             rs.getInt("y"),
                             rs.getInt("z"),
                             rs.getString("player"),
+                            rs.getString("uuid"),
                             rs.getString("action"),
                             rs.getString("target"),
                             rs.getString("data")
@@ -318,14 +328,103 @@ public final class Database {
         return result;
     }
 
-    // 新增：清理早于某时间的日志（返回删除条数；失败返回 -1）
+    // ===== 新增：按玩家（名字或UUID）+ 时间 查询/统计（全维度、全坐标，时间倒序，分页） =====
+
+    public List<LogEntry> queryLogsByActorSince(String playerNameOrNull, String uuidOrNull, long sinceMs, int page, int pageSize) {
+        List<LogEntry> result = new ArrayList<>();
+        if ((playerNameOrNull == null || playerNameOrNull.isBlank()) && (uuidOrNull == null || uuidOrNull.isBlank())) {
+            return result;
+        }
+        int offset = (page - 1) * pageSize;
+
+        StringBuilder sql = new StringBuilder(
+                "SELECT time_ms, dimension, x, y, z, player, uuid, action, target, data FROM logs WHERE time_ms>=?"
+        );
+        if (playerNameOrNull != null && !playerNameOrNull.isBlank() && uuidOrNull != null && !uuidOrNull.isBlank()) {
+            sql.append(" AND (player=? OR uuid=?)");
+        } else if (playerNameOrNull != null && !playerNameOrNull.isBlank()) {
+            sql.append(" AND player=?");
+        } else {
+            sql.append(" AND uuid=?");
+        }
+        sql.append(" ORDER BY time_ms DESC LIMIT ? OFFSET ?");
+
+        try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            int idx = 1;
+            ps.setLong(idx++, sinceMs);
+            if (playerNameOrNull != null && !playerNameOrNull.isBlank() && uuidOrNull != null && !uuidOrNull.isBlank()) {
+                ps.setString(idx++, playerNameOrNull);
+                ps.setString(idx++, uuidOrNull);
+            } else if (playerNameOrNull != null && !playerNameOrNull.isBlank()) {
+                ps.setString(idx++, playerNameOrNull);
+            } else {
+                ps.setString(idx++, uuidOrNull);
+            }
+            ps.setInt(idx++, pageSize);
+            ps.setInt(idx, offset);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.add(new LogEntry(
+                            rs.getLong("time_ms"),
+                            rs.getString("dimension"),
+                            rs.getInt("x"),
+                            rs.getInt("y"),
+                            rs.getInt("z"),
+                            rs.getString("player"),
+                            rs.getString("uuid"),
+                            rs.getString("action"),
+                            rs.getString("target"),
+                            rs.getString("data")
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.error("按玩家查询日志失败", e);
+        }
+        return result;
+    }
+
+    public int countLogsByActorSince(String playerNameOrNull, String uuidOrNull, long sinceMs) {
+        if ((playerNameOrNull == null || playerNameOrNull.isBlank()) && (uuidOrNull == null || uuidOrNull.isBlank())) {
+            return 0;
+        }
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM logs WHERE time_ms>=?");
+        if (playerNameOrNull != null && !playerNameOrNull.isBlank() && uuidOrNull != null && !uuidOrNull.isBlank()) {
+            sql.append(" AND (player=? OR uuid=?)");
+        } else if (playerNameOrNull != null && !playerNameOrNull.isBlank()) {
+            sql.append(" AND player=?");
+        } else {
+            sql.append(" AND uuid=?");
+        }
+
+        try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            int idx = 1;
+            ps.setLong(idx++, sinceMs);
+            if (playerNameOrNull != null && !playerNameOrNull.isBlank() && uuidOrNull != null && !uuidOrNull.isBlank()) {
+                ps.setString(idx++, playerNameOrNull);
+                ps.setString(idx, uuidOrNull);
+            } else if (playerNameOrNull != null && !playerNameOrNull.isBlank()) {
+                ps.setString(idx, playerNameOrNull);
+            } else {
+                ps.setString(idx, uuidOrNull);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt(1);
+            }
+        } catch (SQLException e) {
+            LOGGER.error("统计按玩家日志失败", e);
+        }
+        return 0;
+    }
+    // Database.java 中添加（或恢复）：
     public int deleteLogsBefore(long beforeMs) {
         String sql = "DELETE FROM logs WHERE time_ms < ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, beforeMs);
             int affected = ps.executeUpdate();
 
-            // 可选：SQLite 做一次 VACUUM 回收空间（非必要，可能耗时）
+            // 可选：SQLite 做一次 VACUUM 回收空间（可能耗时）
             if (affected > 0 && dialect == Dialect.SQLITE) {
                 try (Statement st = conn.createStatement()) {
                     st.execute("VACUUM");
@@ -338,6 +437,19 @@ public final class Database {
             LOGGER.error("清理日志失败", e);
             return -1;
         }
+    }
+    // 新增：根据玩家名查询最近一次记录的 UUID（可能为 null）
+    public String findLastUuidByPlayerName(String playerName) {
+        String sql = "SELECT uuid FROM logs WHERE player=? AND uuid IS NOT NULL ORDER BY time_ms DESC LIMIT 1";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, playerName);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getString(1);
+            }
+        } catch (SQLException e) {
+            LOGGER.error("按玩家名查询最近UUID失败", e);
+        }
+        return null;
     }
 
     public void close() {
