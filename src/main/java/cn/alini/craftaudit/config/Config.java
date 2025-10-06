@@ -65,6 +65,7 @@ public final class Config {
 
     public static final class Common {
         public final ForgeConfigSpec.EnumValue<DbMode> dbMode;
+        public final ForgeConfigSpec.BooleanValue auditRequirePermission;
 
         // SQLite
         public final ForgeConfigSpec.ConfigValue<String> sqlitePath;
@@ -85,6 +86,7 @@ public final class Config {
                     .comment("数据库模式: SQLITE 或 MYSQL")
                     .defineEnum("mode", DbMode.SQLITE);
 
+
             builder.push("sqlite");
             sqlitePath = builder
                     .comment("SQLite 文件名（存于游戏根目录下的craftaudit文件夹）")
@@ -99,6 +101,11 @@ public final class Config {
             mysqlPassword = builder.comment("注意: 明文存储，请谨慎使用公共环境").define("password", "");
             mysqlUseSSL = builder.define("useSSL", false);
             mysqlParams = builder.comment("附加 JDBC 参数，形如 `allowPublicKeyRetrieval=true`").define("params", "");
+            builder.pop();
+            builder.push("audit");
+            auditRequirePermission = builder
+                    .comment("审计模式命令是否需要权限，包含ca i审计模式以及ca near范围查询")
+                    .define("requirePermission", true);
             builder.pop();
 
             builder.pop();

@@ -41,15 +41,21 @@ public final class CraftauditCommands {
 
     @SubscribeEvent
     public static void onRegisterCommands(RegisterCommandsEvent event) {
+        // ca inspect 切换审计模式的权限
+        boolean requirePerm = Config.COMMON.auditRequirePermission.get();
         CommandDispatcher<CommandSourceStack> d = event.getDispatcher();
 
         // /craftaudit ...
         d.register(Commands.literal("craftaudit")
-                .requires(src -> src.hasPermission(2))
-                .then(Commands.literal("status").executes(ctx -> report(ctx.getSource())))
-                .then(Commands.literal("inspect").executes(ctx -> toggleAudit(ctx.getSource())))
+                .then(Commands.literal("status")
+                        .requires(src -> src.hasPermission(2))
+                        .executes(ctx -> report(ctx.getSource())))
+                .then(Commands.literal("inspect")
+                        .requires(src -> !requirePerm || src.hasPermission(2))
+                        .executes(ctx -> toggleAudit(ctx.getSource())))
                 // 新增：/craftaudit checkUUID <player>
                 .then(Commands.literal("checkUUID")
+                        .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("player", StringArgumentType.word())
                                 .suggests(ONLINE_PLAYER_SUGGESTIONS)
                                 .executes(ctx -> checkUUID(ctx.getSource(), StringArgumentType.getString(ctx, "player")))
@@ -57,6 +63,7 @@ public final class CraftauditCommands {
                 )
                 // 新：/craftaudit check <player> <time> [page]
                 .then(Commands.literal("check")
+                        .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("player", StringArgumentType.word())
                                 .suggests(ONLINE_PLAYER_SUGGESTIONS)
                                 .then(Commands.argument("time", StringArgumentType.word())
@@ -74,18 +81,21 @@ public final class CraftauditCommands {
                         )
                 )
                 .then(Commands.literal("log")
+                        .requires(src -> !requirePerm || src.hasPermission(2))
                         .executes(ctx -> inspectAudit(ctx.getSource(), 1))
                         .then(Commands.argument("page", IntegerArgumentType.integer(1))
                                 .executes(ctx -> inspectAudit(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "page")))
                         )
                 )
                 .then(Commands.literal("blocklog")
+                        .requires(src -> !requirePerm || src.hasPermission(2))
                         .executes(ctx -> inspectBlockAudit(ctx.getSource(), 1))
                         .then(Commands.argument("page", IntegerArgumentType.integer(1, 100))
                                 .executes(ctx -> inspectBlockAudit(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "page")))
                         )
                 )
                 .then(Commands.literal("near")
+                        .requires(src -> !requirePerm || src.hasPermission(2))
                         .then(Commands.argument("radius", IntegerArgumentType.integer(1, 256))
                                 .then(Commands.argument("time", StringArgumentType.word())
                                         .executes(ctx -> near(
@@ -104,6 +114,7 @@ public final class CraftauditCommands {
                         )
                 )
                 .then(Commands.literal("rollback")
+                        .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("player", StringArgumentType.word())
                                 .suggests(ONLINE_PLAYER_SUGGESTIONS)
                                 .then(Commands.argument("time", StringArgumentType.word())
@@ -122,6 +133,7 @@ public final class CraftauditCommands {
                 )
                 // 新：restore <time> [radius] [type]
                 .then(Commands.literal("restore")
+                        .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("time", StringArgumentType.word())
                                 .executes(ctx -> restore(ctx.getSource(),
                                         StringArgumentType.getString(ctx, "time"),
@@ -148,16 +160,20 @@ public final class CraftauditCommands {
                 )
                 // 新：purge <time> 清理早于指定时间的日志
                 .then(Commands.literal("purge")
+                        .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("time", StringArgumentType.word())
                                 .executes(ctx -> purge(ctx.getSource(),
                                         StringArgumentType.getString(ctx, "time")))
                         )
                 )
                 .then(Commands.literal("undo")
+                        .requires(src -> src.hasPermission(2))
                         .executes(ctx -> undo(ctx.getSource()))
                 )
                 // /craftaudit help
-                .then(Commands.literal("help").executes(ctx -> {
+                .then(Commands.literal("help")
+                        .requires(src -> !requirePerm || src.hasPermission(2))
+                        .executes(ctx -> {
                     CommandSourceStack src = ctx.getSource();
                     src.sendSuccess(() -> Component.literal(
                             "§3[CraftAudit] 指令列表：\n" +
@@ -180,11 +196,15 @@ public final class CraftauditCommands {
 
         // /ca ...
         d.register(Commands.literal("ca")
-                .requires(src -> src.hasPermission(2))
-                .then(Commands.literal("s").executes(ctx -> report(ctx.getSource())))
-                .then(Commands.literal("i").executes(ctx -> toggleAudit(ctx.getSource())))
+                .then(Commands.literal("s")
+                        .requires(src -> src.hasPermission(2))
+                        .executes(ctx -> report(ctx.getSource())))
+                .then(Commands.literal("i")
+                        .requires(src -> !requirePerm || src.hasPermission(2))
+                        .executes(ctx -> toggleAudit(ctx.getSource())))
                 // 新增：/craftaudit checkUUID <player>
                 .then(Commands.literal("checkUUID")
+                        .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("player", StringArgumentType.word())
                                 .suggests(ONLINE_PLAYER_SUGGESTIONS)
                                 .executes(ctx -> checkUUID(ctx.getSource(), StringArgumentType.getString(ctx, "player")))
@@ -192,6 +212,7 @@ public final class CraftauditCommands {
                 )
                 // 新：/ca check <player> <time> [page]
                 .then(Commands.literal("check")
+                        .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("player", StringArgumentType.word())
                                 .suggests(ONLINE_PLAYER_SUGGESTIONS)
                                 .then(Commands.argument("time", StringArgumentType.word())
@@ -209,18 +230,21 @@ public final class CraftauditCommands {
                         )
                 )
                 .then(Commands.literal("log")
+                        .requires(src -> !requirePerm || src.hasPermission(2))
                         .executes(ctx -> inspectAudit(ctx.getSource(), 1))
                         .then(Commands.argument("page", IntegerArgumentType.integer(1))
                                 .executes(ctx -> inspectAudit(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "page")))
                         )
                 )
                 .then(Commands.literal("blocklog")
+                        .requires(src -> !requirePerm || src.hasPermission(2))
                         .executes(ctx -> inspectBlockAudit(ctx.getSource(), 1))
                         .then(Commands.argument("page", IntegerArgumentType.integer(1))
                                 .executes(ctx -> inspectBlockAudit(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "page")))
                         )
                 )
                 .then(Commands.literal("near")
+                        .requires(src -> !requirePerm || src.hasPermission(2))
                         .then(Commands.argument("radius", IntegerArgumentType.integer(1, 256))
                                 .then(Commands.argument("time", StringArgumentType.word())
                                         .executes(ctx -> near(
@@ -239,6 +263,7 @@ public final class CraftauditCommands {
                         )
                 )
                 .then(Commands.literal("rollback")
+                        .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("player", StringArgumentType.word())
                                 .suggests(ONLINE_PLAYER_SUGGESTIONS)
                                 .then(Commands.argument("time", StringArgumentType.word())
@@ -256,6 +281,7 @@ public final class CraftauditCommands {
                         )
                 )
                 .then(Commands.literal("restore")
+                        .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("time", StringArgumentType.word())
                                 .executes(ctx -> restore(ctx.getSource(),
                                         StringArgumentType.getString(ctx, "time"),
@@ -282,16 +308,20 @@ public final class CraftauditCommands {
                 )
                 // 新：/ca purge <time>
                 .then(Commands.literal("purge")
+                        .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("time", StringArgumentType.word())
                                 .executes(ctx -> purge(ctx.getSource(),
                                         StringArgumentType.getString(ctx, "time")))
                         )
                 )
                 .then(Commands.literal("undo")
+                        .requires(src -> src.hasPermission(2))
                         .executes(ctx -> undo(ctx.getSource()))
                 )
                 // /ca help
-                .then(Commands.literal("help").executes(ctx -> {
+                .then(Commands.literal("help")
+                        .requires(src -> !requirePerm || src.hasPermission(2))
+                        .executes(ctx -> {
                     CommandSourceStack src = ctx.getSource();
                     src.sendSuccess(() -> Component.literal(
                             "§3[CraftAudit] 指令列表：\n" +
